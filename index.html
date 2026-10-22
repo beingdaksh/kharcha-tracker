@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#16a34a">
+<title>Kharcha Tracker</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #0b1f14; color: #f0fdf4; min-height: 100vh; }
+  header { background: #16a34a; padding: 18px; text-align: center; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .92; }
+  main { padding: 14px; max-width: 560px; margin: 0 auto; }
+  .cards { display: flex; gap: 8px; margin-bottom: 12px; }
+  .card { flex: 1; background: #14532d; border-radius: 12px; padding: 10px; text-align: center; }
+  .card .lbl { font-size: 11px; opacity: .85; text-transform: uppercase; letter-spacing: .4px; }
+  .card .val { font-size: 18px; font-weight: 700; margin-top: 3px; }
+  .budget { background: #14532d; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .budget .top { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+  .budget button { background: #16a34a; border: none; color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+  .bar { height: 10px; background: #052e16; border-radius: 6px; margin-top: 10px; overflow: hidden; }
+  .bar > div { height: 100%; background: #4ade80; width: 0%; transition: width .3s; }
+  .bar > div.warn { background: #facc15; }
+  .bar > div.over { background: #ef4444; }
+  .form { background: #12291a; border: 1px solid #14532d; border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+  .form input, .form select { width: 100%; padding: 12px; border-radius: 10px; border: none; font-size: 16px; margin-bottom: 8px; }
+  .addbtn { width: 100%; padding: 13px; border: none; border-radius: 10px; background: #16a34a; color: #fff; font-size: 17px; font-weight: 700; }
+  h3 { margin: 14px 0 8px; font-size: 15px; }
+  .catrow { display: flex; justify-content: space-between; background: #12291a; border-radius: 10px; padding: 9px 12px; margin-bottom: 6px; font-size: 14px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { background: #12291a; border: 1px solid #14532d; padding: 11px 12px; border-radius: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  li .amt { font-weight: 700; white-space: nowrap; }
+  li .meta { font-size: 12px; opacity: .75; }
+  li button { background: #374151; color: #fff; border: none; padding: 6px 10px; border-radius: 8px; font-size: 13px; }
+  .empty { text-align: center; opacity: .6; margin-top: 24px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>💰 Kharcha Tracker</h1>
+  <p>Roz ka kharcha likho, mahine ka hisaab apne aap!</p>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="lbl">Aaj</div><div class="val" id="sumToday">₹0</div></div>
+    <div class="card"><div class="lbl">7 Din</div><div class="val" id="sumWeek">₹0</div></div>
+    <div class="card"><div class="lbl">Is Mahine</div><div class="val" id="sumMonth">₹0</div></div>
+  </div>
+
+  <div class="budget">
+    <div class="top">
+      <span id="budgetText">Mahine ka budget set nahi hai</span>
+      <button id="budgetBtn">Budget Set Karo</button>
+    </div>
+    <div class="bar"><div id="budgetBar"></div></div>
+  </div>
+
+  <div class="form">
+    <input id="amount" type="number" inputmode="decimal" min="0" placeholder="Kitne ₹ kharch hue?">
+    <select id="category">
+      <option value="🍔 Khana">🍔 Khana</option>
+      <option value="🚌 Travel">🚌 Travel</option>
+      <option value="📱 Recharge">📱 Recharge</option>
+      <option value="🛍️ Shopping">🛍️ Shopping</option>
+      <option value="⛽ Petrol">⛽ Petrol</option>
+      <option value="💡 Bills">💡 Bills</option>
+      <option value="🎬 Entertainment">🎬 Entertainment</option>
+      <option value="📦 Aur">📦 Aur</option>
+    </select>
+    <input id="note" type="text" placeholder="Note (optional) — jaise: samosa, auto, movie">
+    <button class="addbtn" id="addBtn">+ Kharcha Add Karo</button>
+  </div>
+
+  <div id="catSection"></div>
+
+  <h3>📋 Haal ke kharche</h3>
+  <ul id="list"></ul>
+  <p class="empty" id="emptyMsg">Abhi koi kharcha nahi likha. Pehla kharcha add karo!</p>
+</main>
+<script>
+  const KEY = 'kharcha_entries_v1';
+  const BKEY = 'kharcha_budget_v1';
+  let entries = JSON.parse(localStorage.getItem(KEY) || '[]');
+  let budget = parseFloat(localStorage.getItem(BKEY) || '0');
+
+  const $ = id => document.getElementById(id);
+  const fmt = n => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  function totals() {
+    const now = new Date();
+    const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 6); weekAgo.setHours(0,0,0,0);
+    let t = 0, w = 0, m = 0;
+    const cats = {};
+    entries.forEach(e => {
+      const d = new Date(e.date);
+      if (sameDay(d, now)) t += e.amount;
+      if (d >= weekAgo) w += e.amount;
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+        m += e.amount;
+        cats[e.category] = (cats[e.category] || 0) + e.amount;
+      }
+    });
+    return { t, w, m, cats };
+  }
+
+  function render() {
+    const { t, w, m, cats } = totals();
+    $('sumToday').textContent = fmt(t);
+    $('sumWeek').textContent = fmt(w);
+    $('sumMonth').textContent = fmt(m);
+
+    if (budget > 0) {
+      const pct = Math.min(100, Math.round(m / budget * 100));
+      $('budgetText').textContent = 'Budget: ' + fmt(budget) + ' · Kharch: ' + fmt(m) + ' (' + pct + '%)';
+      const bar = $('budgetBar');
+      bar.style.width = pct + '%';
+      bar.className = pct >= 100 ? 'over' : (pct >= 80 ? 'warn' : '');
+      $('budgetBtn').textContent = 'Budget Badlo';
+    } else {
+      $('budgetText').textContent = 'Mahine ka budget set nahi hai';
+      $('budgetBar').style.width = '0%';
+      $('budgetBtn').textContent = 'Budget Set Karo';
+    }
+
+    const catNames = Object.keys(cats).sort((a, b) => cats[b] - cats[a]);
+    $('catSection').innerHTML = catNames.length
+      ? '<h3>📊 Is mahine category ke hisaab se</h3>' + catNames.map(c =>
+          '<div class="catrow"><span>' + esc(c) + '</span><b>' + fmt(cats[c]) + '</b></div>').join('')
+      : '';
+
+    const sorted = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date) || b.id - a.id);
+    $('emptyMsg').style.display = sorted.length ? 'none' : 'block';
+    $('list').innerHTML = sorted.slice(0, 60).map(e => {
+      const d = new Date(e.date);
+      const when = sameDay(d, new Date()) ? 'Aaj' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return '<li><div><div>' + esc(e.category) + (e.note ? ' — ' + esc(e.note) : '') + '</div>' +
+             '<div class="meta">' + when + '</div></div>' +
+             '<div style="display:flex;align-items:center;gap:8px;"><span class="amt">' + fmt(e.amount) + '</span>' +
+             '<button data-del="' + e.id + '">Delete</button></div></li>';
+    }).join('');
+
+    document.querySelectorAll('[data-del]').forEach(btn => {
+      btn.onclick = () => {
+        entries = entries.filter(e => e.id !== Number(btn.getAttribute('data-del')));
+        save();
+      };
+    });
+  }
+
+  function save() { localStorage.setItem(KEY, JSON.stringify(entries)); render(); }
+
+  $('addBtn').onclick = () => {
+    const amt = parseFloat($('amount').value);
+    if (!amt || amt <= 0) { alert('Pehle sahi amount likho (₹ me)'); return; }
+    entries.push({
+      id: Date.now(),
+      amount: amt,
+      category: $('category').value,
+      note: $('note').value.trim(),
+      date: new Date().toISOString()
+    });
+    $('amount').value = ''; $('note').value = '';
+    save();
+  };
+
+  $('budgetBtn').onclick = () => {
+    const v = prompt('Is mahine ka budget kitna rakho ge? (₹ me number likho)', budget > 0 ? budget : '');
+    if (v === null) return;
+    const n = parseFloat(v);
+    if (!isNaN(n) && n >= 0) { budget = n; localStorage.setItem(BKEY, String(n)); render(); }
+  };
+
+  render();
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+</script>
+</body>
+</html>
