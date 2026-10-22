@@ -48,6 +48,8 @@ jobs:
       - name: Re-sign APK with fixed key
         run: |
           echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" | base64 -d > $GITHUB_WORKSPACE/debug.keystore
+          wc -c $GITHUB_WORKSPACE/debug.keystore
+          sha256sum $GITHUB_WORKSPACE/debug.keystore
           BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
           APK_IN=$(find . -name "app-debug.apk" | head -1)
           echo "Build-tools: $BT, APK: $APK_IN"
