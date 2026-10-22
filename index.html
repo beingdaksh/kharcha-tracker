@@ -698,31 +698,39 @@ window.addEventListener('online',scheduleSync);
 /* ---------- Cloud auth gate ---------- */
 function showCloudAuth(msg){
   $('appView').style.display='none';$('authView').style.display='flex';
-  $('authView').innerHTML='<div class="authCard"><div class="logo">💰</div><h1>Kharcha Tracker</h1><p>Ab hisaab cloud me safe — kisi bhi phone me login karo, wahi data milega.</p>'
-  +'<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn ghost" id="caTabL" onclick="caTab(1)">Login</button><button class="btn ghost" id="caTabS" onclick="caTab(0)">Account Banao</button></div>'
-  +'<div id="caFormL"><input id="caEmailL" type="email" placeholder="Email"><input id="caPassL" type="password" placeholder="Password"><div class="authErr" id="caErr"></div><button class="btn" onclick="doLogin()">Login Karo →</button></div>'
-  +'<div id="caFormS" style="display:none"><input id="caName" type="text" placeholder="Tumhara naam"><input id="caEmail" type="email" placeholder="Email"><input id="caPass" type="password" placeholder="Password (kam se kam 6 akshar)"><div class="authErr" id="caErrS"></div><button class="btn" onclick="doSignup()">Account Banao →</button><p style="margin-top:10px;font-size:12px">Email par ek confirmation link jayega — use dabane ke baad login hoga.</p></div>'
+  const pn=(typeof profile!=='undefined'&&profile&&profile.name)?profile.name:'';
+  $('authView').innerHTML='<div class="authCard"><div class="logo">💰</div><h1>Kharcha Tracker</h1><p id="caSub">Apne kharche ka pura hisaab, ek jagah.</p>'
+  +'<div id="caFormS"><input id="caName" type="text" placeholder="Tumhara naam" value="'+esc(pn)+'"><input id="caEmail" type="email" placeholder="Email (cloud account ke liye)"><input id="caPass" type="password" placeholder="Password banao (kam se kam 6 akshar)"><input id="caPin" type="password" inputmode="numeric" maxlength="6" placeholder="4-6 digit ka PIN banao (roz app kholne ke liye)"><input id="caPin2" type="password" inputmode="numeric" maxlength="6" placeholder="PIN dobara likho"><div class="authErr" id="caErrS"></div><button class="btn" onclick="doSignup()">Account Banao →</button><p style="margin-top:12px;font-size:12px">Pehle se account hai? <a href="#" onclick="caTab(1);return false;" style="color:var(--blue);font-weight:700">Login karo</a></p></div>'
+  +'<div id="caFormL" style="display:none"><input id="caEmailL" type="email" placeholder="Email"><input id="caPassL" type="password" placeholder="Password"><div class="authErr" id="caErr"></div><button class="btn" onclick="doLogin()">Login Karo →</button><p style="margin-top:12px;font-size:12px">Naya account banana hai? <a href="#" onclick="caTab(0);return false;" style="color:var(--blue);font-weight:700">Account banao</a></p></div>'
   +'</div>';
-  if(msg)$('caErr').textContent=msg;
-  caTab(1);
+  if(msg)$('caErrS').textContent=msg;
+  caTab(0);
 }
-function caTab(login){$('caFormL').style.display=login?'block':'none';$('caFormS').style.display=login?'none':'block';$('caTabL').style.opacity=login?'1':'.55';$('caTabS').style.opacity=login?'.55':'1';}
+function caTab(login){$('caFormL').style.display=login?'block':'none';$('caFormS').style.display=login?'none':'block';$('caSub').textContent=login?'Vapas aane par swagat hai! Email + password se login karo.':'Apne kharche ka pura hisaab, ek jagah.';}
 async function doLogin(){
   const em=$('caEmailL').value.trim(),pw=$('caPassL').value,er=$('caErr');
   if(!em||!pw){er.textContent='Email aur password dono likho.';return;}
   er.textContent='Login ho raha hai…';
   const r=await sb.auth.signInWithPassword({email:em,password:pw});
-  if(r.error){er.textContent='Login nahi hua — email/password check karo. Agar abhi account banaya hai, to pehle email wala confirmation link dabao.';return;}
+  if(r.error){er.textContent='Login nahi hua — email/password check karo. Agar account nahi banaya hai, to pehle Account Banao.';return;}
   enterCloud(r.data.session);
 }
 async function doSignup(){
-  const nm=$('caName').value.trim(),em=$('caEmail').value.trim(),pw=$('caPass').value,er=$('caErrS');
-  if(!nm||!em||pw.length<6){er.textContent='Naam, email aur kam se kam 6 akshar ka password chahiye.';return;}
-  er.textContent='Account ban raha hai…';
+  const nm=$('caName').value.trim(),em=$('caEmail').value.trim(),pw=$('caPass').value,p1=$('caPin').value.trim(),p2=$('caPin2').value.trim(),er=$('caErrS');
+  if(!nm){er.textContent='Pehle apna naam likho.';return;}
+  if(!em||pw.length<6){er.textContent='Email aur kam se kam 6 akshar ka password chahiye (cloud account ke liye).';return;}
+  let pinHash=(profile&&profile.pinHash)?profile.pinHash:null;
+  if(p1||!pinHash){
+    if(!/^\d{4,6}$/.test(p1)){er.textContent='PIN 4-6 digit ka number hona chahiye.';return;}
+    if(p1!==p2){er.textContent='Dono PIN ek jaise nahi hain.';return;}
+    pinHash=hashPin(p1);
+  }
+  er.textContent='Account ban raha hai\u2026';
   const r=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
-  if(r.error){er.textContent='Account nahi bana: '+(r.error.message||'dobara try karo');return;}
-  if(r.data.session){pendingName=nm;enterCloud(r.data.session);}
-  else{showCloudAuth('');$('caErr').style.color='var(--green,#16a34a)';$('caErr').textContent='Account ban gaya! Email par confirmation link gaya hai — use dabao, phir yahan Login karo.';}
+  if(r.error){er.textContent=/already/i.test(r.error.message||'')?'Ye email pehle se registered hai \u2014 neeche se Login karo.':'Account nahi bana: '+(r.error.message||'dobara try karo');return;}
+  profile={name:nm,pinHash:pinHash};LS.set('kt2_profile',profile);
+  if(r.data.session){pendingName=nm;sessionStorage.setItem('kt_unlocked','1');enterCloud(r.data.session);}
+  else{er.style.color='var(--green,#16a34a)';er.textContent='Account ban gaya! Email par confirmation link gaya hai \u2014 use dabao, phir Login karo.';caTab(1);}
 }
 async function enterCloud(session){
   if(!session||!session.user)return;
