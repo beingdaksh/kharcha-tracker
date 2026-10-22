@@ -45,6 +45,16 @@ jobs:
         run: ./gradlew assembleDebug
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk kharcha-tracker.apk
+      - name: Re-sign APK with fixed key
+        run: |
+          echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}" | base64 -d > $GITHUB_WORKSPACE/debug.keystore
+          BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
+          APK_IN=$(find . -name "app-debug.apk" | head -1)
+          echo "Build-tools: $BT, APK: $APK_IN"
+          $ANDROID_HOME/build-tools/$BT/zipalign -p -f 4 "$APK_IN" $GITHUB_WORKSPACE/app-aligned.apk
+          $ANDROID_HOME/build-tools/$BT/apksigner sign --ks $GITHUB_WORKSPACE/debug.keystore --ks-store-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out $GITHUB_WORKSPACE/kharcha-signed.apk $GITHUB_WORKSPACE/app-aligned.apk
+          $ANDROID_HOME/build-tools/$BT/apksigner verify --print-certs $GITHUB_WORKSPACE/kharcha-signed.apk
+          cp $GITHUB_WORKSPACE/kharcha-signed.apk $GITHUB_WORKSPACE/kharcha-tracker.apk
       - name: Publish APK to Release
         uses: softprops/action-gh-release@v2
         with:
