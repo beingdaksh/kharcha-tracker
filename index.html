@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#2563eb">
 <title>Kharcha Tracker</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' https://*.supabase.co wss://*.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <style>
@@ -249,7 +250,7 @@
       <div class="box">
         <h3>📱 App</h3>
         <a class="dlBtn" href="https://github.com/beingdaksh/kharcha-tracker/releases/download/apk-latest/kharcha-tracker.apk">📥 APK Download Karo</a>
-        <p class="meta" style="margin-top:8px">Kharcha Tracker v2 · Data sirf tumhare phone me rehta hai.</p>
+        <p class="meta" style="margin-top:8px">Kharcha Tracker v3.0 — data tumhare account (cloud) me safe rehta hai.</p>
       </div>
     </section>
   </main>
@@ -659,6 +660,153 @@ function renderAll(){
 applyTheme();
 if(sessionStorage.getItem('kt_unlocked') === '1' && profile) unlock(); else showAuth();
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js'); }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== Kharcha Tracker v3: Supabase cloud login + sync + live shell =====
+   App ke asli globals (profile/entries/settings/cats, LS, unlock...) par bana hai.
+   saveEntries/saveSettings const hain, isliye sync ka hook LS.set par lagaya hai —
+   app ki har local save ke baad cloud sync schedule ho jata hai. */
+const SB_URL='https://uiyayoezpbihdtnvksrh.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpeWF5b2V6cGJpaGR0bnZrc3JoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2NjI5NTIsImV4cCI6MjEwODIzODk1Mn0.1wiISgTdmnEi9aAuiueE5_m8H8Zv6PfsQpYDzYk7YX4';
+const LIVE_URL='https://beingdaksh.github.io/kharcha-tracker/';
+const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY):null;
+let UID=null,syncTimer=null,acctWired=false,pendingName='';
+if(window.Capacitor&&navigator.onLine&&location.hostname!=='beingdaksh.github.io'){setTimeout(function(){try{location.replace(LIVE_URL);}catch(e){}},900);}
+function rowE(r){const e={id:Number(r.client_id)||r.id,type:r.type,amount:Number(r.amount),category:r.category,account:r.account,note:r.note||'',date:r.date};if(r.recur)e.recur=r.recur;if(r.recur_from)e.recurFrom=Number(r.recur_from);return e;}
+function eRow(e){return{user_id:UID,client_id:String(e.id),type:e.type,amount:e.amount,category:e.category,account:e.account,note:e.note||'',date:e.date,recur:e.recur||null,recur_from:e.recurFrom?String(e.recurFrom):null};}
+function knownKey(){return 'kt3_known_'+UID;}
+function getKnown(){try{return JSON.parse(localStorage.getItem(knownKey())||'[]').map(String);}catch(e){return[];}}
+function setKnown(a){try{localStorage.setItem(knownKey(),JSON.stringify(a.map(String)));}catch(e){}}
+async function cloudFetchEntries(){try{const r=await sb.from('entries').select('*').order('date',{ascending:true});if(r.error)return null;return r.data.map(rowE);}catch(e){return null;}}
+async function syncAll(){
+  if(!sb||!UID||!navigator.onLine)return;
+  try{await sb.from('user_settings').upsert({user_id:UID,data:{profile:profile,settings:settings,cats:cats},updated_at:new Date().toISOString()});}catch(e){}
+  const cloud=await cloudFetchEntries();
+  if(cloud){const lids=new Set(entries.map(function(e){return String(e.id);}));let pulled=0;cloud.forEach(function(ce){if(!lids.has(String(ce.id))){entries.push(ce);pulled++;}});if(pulled){entries.sort(function(a,b){return new Date(a.date)-new Date(b.date)||a.id-b.id;});saveEntries();}}
+  if(entries.length){try{await sb.from('entries').upsert(entries.map(eRow),{onConflict:'user_id,client_id'});}catch(e){}}
+  const known=getKnown(),cur=new Set(entries.map(function(e){return String(e.id);}));
+  const gone=known.filter(function(id){return !cur.has(id);});
+  if(gone.length){try{await sb.from('entries').delete().in('client_id',gone);}catch(e){}}
+  setKnown(Array.from(cur));
+  if($('authView').style.display==='none')renderAll();
+}
+function scheduleSync(){if(!UID)return;clearTimeout(syncTimer);syncTimer=setTimeout(syncAll,1200);}
+const _lsSet=LS.set.bind(LS);
+LS.set=function(k,v){_lsSet(k,v);if(k==='kt2_entries'||k==='kt2_settings'||k==='kt2_cats'||k==='kt2_profile')scheduleSync();};
+window.addEventListener('online',scheduleSync);
+/* ---------- Cloud auth gate ---------- */
+function showCloudAuth(msg){
+  $('appView').style.display='none';$('authView').style.display='flex';
+  $('authView').innerHTML='<div class="authCard"><div class="logo">💰</div><h1>Kharcha Tracker</h1><p>Ab hisaab cloud me safe — kisi bhi phone me login karo, wahi data milega.</p>'
+  +'<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn ghost" id="caTabL" onclick="caTab(1)">Login</button><button class="btn ghost" id="caTabS" onclick="caTab(0)">Account Banao</button></div>'
+  +'<div id="caFormL"><input id="caEmailL" type="email" placeholder="Email"><input id="caPassL" type="password" placeholder="Password"><div class="authErr" id="caErr"></div><button class="btn" onclick="doLogin()">Login Karo →</button></div>'
+  +'<div id="caFormS" style="display:none"><input id="caName" type="text" placeholder="Tumhara naam"><input id="caEmail" type="email" placeholder="Email"><input id="caPass" type="password" placeholder="Password (kam se kam 6 akshar)"><div class="authErr" id="caErrS"></div><button class="btn" onclick="doSignup()">Account Banao →</button><p style="margin-top:10px;font-size:12px">Email par ek confirmation link jayega — use dabane ke baad login hoga.</p></div>'
+  +'</div>';
+  if(msg)$('caErr').textContent=msg;
+  caTab(1);
+}
+function caTab(login){$('caFormL').style.display=login?'block':'none';$('caFormS').style.display=login?'none':'block';$('caTabL').style.opacity=login?'1':'.55';$('caTabS').style.opacity=login?'.55':'1';}
+async function doLogin(){
+  const em=$('caEmailL').value.trim(),pw=$('caPassL').value,er=$('caErr');
+  if(!em||!pw){er.textContent='Email aur password dono likho.';return;}
+  er.textContent='Login ho raha hai…';
+  const r=await sb.auth.signInWithPassword({email:em,password:pw});
+  if(r.error){er.textContent='Login nahi hua — email/password check karo. Agar abhi account banaya hai, to pehle email wala confirmation link dabao.';return;}
+  enterCloud(r.data.session);
+}
+async function doSignup(){
+  const nm=$('caName').value.trim(),em=$('caEmail').value.trim(),pw=$('caPass').value,er=$('caErrS');
+  if(!nm||!em||pw.length<6){er.textContent='Naam, email aur kam se kam 6 akshar ka password chahiye.';return;}
+  er.textContent='Account ban raha hai…';
+  const r=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
+  if(r.error){er.textContent='Account nahi bana: '+(r.error.message||'dobara try karo');return;}
+  if(r.data.session){pendingName=nm;enterCloud(r.data.session);}
+  else{showCloudAuth('');$('caErr').style.color='var(--green,#16a34a)';$('caErr').textContent='Account ban gaya! Email par confirmation link gaya hai — use dabao, phir yahan Login karo.';}
+}
+async function enterCloud(session){
+  if(!session||!session.user)return;
+  const user=session.user;UID=user.id;
+  try{localStorage.setItem('kt3_last_uid',UID);}catch(e){}
+  let cloudState=null;
+  try{const r=await sb.from('user_settings').select('data').eq('user_id',UID).maybeSingle();if(r.data&&r.data.data&&(r.data.data.profile||r.data.data.settings))cloudState=r.data.data;}catch(e){}
+  if(cloudState){
+    if(cloudState.profile)profile=cloudState.profile;
+    if(cloudState.settings)settings=cloudState.settings;
+    if(Array.isArray(cloudState.cats)&&cloudState.cats.length)cats=cloudState.cats;
+    _lsSet('kt2_profile',profile);_lsSet('kt2_settings',settings);_lsSet('kt2_cats',cats);
+    applyTheme();
+    const cloudEntries=await cloudFetchEntries();
+    if(cloudEntries){
+      const cids=new Set(cloudEntries.map(function(e){return String(e.id);}));
+      const extras=entries.filter(function(e){return !cids.has(String(e.id));});
+      entries=cloudEntries.concat(extras);
+      _lsSet('kt2_entries',entries);setKnown(cloudEntries.map(function(e){return e.id;}));
+    }
+  }else{
+    if(!profile){profile={name:pendingName||(user.user_metadata&&user.user_metadata.name)||(user.email||'').split('@')[0],pinHash:null};_lsSet('kt2_profile',profile);}
+    setKnown([]);
+  }
+  wireAccount(user);
+  syncAll();
+  if(profile&&profile.pinHash&&sessionStorage.getItem('kt_unlocked')!=='1'){pinGateShow();}
+  else{sessionStorage.setItem('kt_unlocked','1');unlock();}
+}
+function pinGateShow(){
+  $('appView').style.display='none';$('authView').style.display='flex';
+  $('authView').innerHTML='<div class="authCard"><div class="logo">💰</div><h1>Kharcha Tracker</h1><p>Vapas aane par swagat hai, '+esc(profile.name)+'! PIN likho.</p><input id="caPin" type="password" inputmode="numeric" maxlength="6" placeholder="Apna PIN likho"><div class="authErr" id="caPinErr"></div><button class="btn" onclick="caPinGo()">Kholo →</button><p style="margin-top:12px;font-size:12px"><a href="#" onclick="doLogout();return false;" style="color:var(--blue)">Dusre account se login karna hai?</a></p></div>';
+  $('caPin').addEventListener('keydown',function(e){if(e.key==='Enter')caPinGo();});
+}
+function caPinGo(){
+  const p=$('caPin').value.trim();
+  if(profile&&hashPin(p)===profile.pinHash){sessionStorage.setItem('kt_unlocked','1');$('caPin').value='';unlock();}
+  else $('caPinErr').textContent='Galat PIN. Dobara try karo.';
+}
+function wireAccount(user){
+  if(acctWired)return;acctWired=true;
+  $('lockBtn').onclick=function(){sessionStorage.removeItem('kt_unlocked');if(profile&&profile.pinHash){pinGateShow();}else if(sb){sb.auth.signOut();showCloudAuth('');}else{showAuth();}};
+  const vs=$('view-settings');if(!vs)return;
+  const card=document.createElement('div');card.className='box';
+  card.innerHTML='<h3 style="margin:4px 0 8px">👤 Account (Cloud)</h3><p style="color:var(--muted);font-size:13px;margin:2px 0">Login: <b>'+esc(user.email||'')+'</b></p><p style="color:var(--muted);font-size:13px;margin:2px 0 10px">Data cloud me safe hai — dusre phone me login karte hi wahi hisaab milega.</p><button class="btn ghost" style="width:auto;padding:10px 14px" onclick="manualSync()">🔄 Abhi Sync Karo</button> <label class="btn ghost" style="width:auto;padding:10px 14px;display:inline-block;cursor:pointer">📥 Backup Import<input type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this)"></label> <button class="btn red" style="width:auto;padding:10px 14px" onclick="doLogout()">Logout</button>';
+  vs.insertBefore(card,vs.firstChild);
+  $('wipeBtn').onclick=async function(){
+    if(!confirm('Pakka? Saari entries, budget aur settings — phone aur cloud dono se — delete ho jayengi. Ye wapas nahi aayega.'))return;
+    if(!confirm('Ek baar phir soch lo — sach me sab delete karun?'))return;
+    if(UID&&navigator.onLine){try{await sb.from('entries').delete().eq('user_id',UID);await sb.from('user_settings').delete().eq('user_id',UID);}catch(e){}}
+    ['kt2_entries','kt2_profile','kt2_settings','kt2_cats','kharcha_entries_v1','kharcha_budget_v1',knownKey()].forEach(function(k){localStorage.removeItem(k);});
+    location.reload();
+  };
+}
+async function manualSync(){if(!navigator.onLine){alert('Internet off hai — sync ke liye net chahiye.');return;}await syncAll();alert('Sync ho gaya ✅');}
+async function importBackup(inp){
+  const f=inp.files&&inp.files[0];if(!f)return;
+  try{
+    const data=JSON.parse(await f.text());
+    const list=(data&&data.entries)||[];
+    const have=new Set(entries.map(function(e){return String(e.id);}));
+    let added=0;
+    list.forEach(function(e){
+      if(!e||(e.type!=='expense'&&e.type!=='income')||!(Number(e.amount)>0))return;
+      const ne={id:Number(e.id)||Date.now()+added,type:e.type,amount:Number(e.amount),category:e.category||'📦 Aur',account:e.account||'💵 Cash',note:e.note||'',date:e.date||new Date().toISOString()};
+      if(e.recur)ne.recur=e.recur; if(e.recurFrom)ne.recurFrom=e.recurFrom;
+      if(!have.has(String(ne.id))){entries.push(ne);have.add(String(ne.id));added++;}
+    });
+    if(!added){alert('Is backup ki saari entries pehle se hain — kuch naya nahi mila.');}
+    else{saveEntries();renderAll();scheduleSync();alert(added+' entries import ho gayi ✅ — cloud me sync ho jayengi.');}
+  }catch(e){alert('File padh nahi paya — sahi wali backup (JSON) file chuno.');}
+  inp.value='';
+}
+async function doLogout(){if(sb)await sb.auth.signOut();sessionStorage.removeItem('kt_unlocked');location.reload();}
+/* ---------- v3 boot ---------- */
+(async function(){
+  if(!sb)return; /* CDN nahi aaya (offline pehli baar) to purana local mode hi chalega */
+  try{
+    const r=await sb.auth.getSession();
+    if(r.data&&r.data.session)enterCloud(r.data.session);
+    else showCloudAuth('');
+  }catch(e){showCloudAuth('');}
+})();
+
 </script>
 </body>
 </html>
